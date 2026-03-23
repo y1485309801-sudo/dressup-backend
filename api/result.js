@@ -1,5 +1,3 @@
-import { Signer } from '@volcengine/openapi';
-
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
@@ -12,6 +10,8 @@ export default async function handler(req, res) {
   if (!id) return res.status(400).json({ error: '缺少任务ID' });
 
   try {
+    const { Signer } = await import('@volcengine/openapi');
+
     const body = JSON.stringify({ task_id: id });
 
     const requestObj = {

@@ -11,6 +11,8 @@ export default async function handler(req, res) {
 
     async function uploadToReplicate(base64Str) {
       if (base64Str.startsWith('http')) return base64Str;
+
+      // 解析 base64
       const matches = base64Str.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
       let buffer, mimeType;
       if (matches) {
@@ -18,27 +20,37 @@ export default async function handler(req, res) {
         buffer = Buffer.from(matches[2], 'base64');
       } else {
         buffer = Buffer.from(base64Str, 'base64');
-        mimeType = 'image/png';
+        mimeType = 'image/jpeg';
       }
+
+      console.log('上传图片，大小:', buffer.length, 'bytes, 类型:', mimeType);
+
       const uploadRes = await fetch('https://api.replicate.com/v1/files', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${REPLICATE_TOKEN}`,
           'Content-Type': mimeType,
-          'Content-Length': String(buffer.length),
         },
         body: buffer
       });
-      const uploadData = await uploadRes.json();
-      if (!uploadData.urls?.get) throw new Error('图片上传失败: ' + JSON.stringify(uploadData));
+
+      const text = await uploadRes.text();
+      console.log('上传响应:', text);
+
+      let uploadData;
+      try { uploadData = JSON.parse(text); } catch(e) { throw new Error('上传响应解析失败: ' + text); }
+
+      if (!uploadData.urls?.get) throw new Error('图片上传失败: ' + text);
       return uploadData.urls.get;
     }
 
     console.log('上传人物图片...');
     const humanUrl = await uploadToReplicate(human_img);
+    console.log('人物图片URL:', humanUrl);
+
     console.log('上传衣服图片...');
     const garmentUrl = await uploadToReplicate(garm_img);
-    console.log('启动换衣模型...');
+    console.log('衣服图片URL:', garmentUrl);
 
     const startRes = await fetch('https://api.replicate.com/v1/models/cuuupid/idm-vton/predictions', {
       method: 'POST',

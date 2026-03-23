@@ -3,6 +3,6 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
-    "@volcengine/openapi": "^3.0.0"
+    "@volcengine/openapi": "latest"
   }
 }

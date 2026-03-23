@@ -17,10 +17,13 @@ export default async function handler(req, res) {
 
     if (result.status === 'succeeded' && result.output) {
       const outputUrl = Array.isArray(result.output) ? result.output[0] : result.output;
+      res.setHeader('Cache-Control', 'no-store');
       return res.status(200).json({ status: 'succeeded', imageUrl: outputUrl });
     } else if (result.status === 'failed') {
+      res.setHeader('Cache-Control', 'no-store');
       return res.status(200).json({ status: 'failed', error: result.error || '生成失败' });
     } else {
+      res.setHeader('Cache-Control', 'no-store');
       return res.status(200).json({ status: result.status });
     }
 

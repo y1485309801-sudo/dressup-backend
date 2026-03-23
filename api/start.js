@@ -17,61 +17,20 @@ export default async function handler(req, res) {
     const { human_img, garm_img } = req.body;
     if (!human_img || !garm_img) return res.status(400).json({ error: '缺少图片参数' });
 
-    async function uploadToReplicate(base64Str) {
-      if (base64Str.startsWith('http')) return base64Str;
+    console.log('直接用 base64 data URL 调用模型...');
 
-      const matches = base64Str.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-      let b64data, mimeType;
-      if (matches) {
-        mimeType = matches[1];
-        b64data = matches[2];
-      } else {
-        mimeType = 'image/jpeg';
-        b64data = base64Str;
-      }
-
-      const buffer = Buffer.from(b64data, 'base64');
-      console.log('上传图片, 大小:', buffer.length, '类型:', mimeType);
-
-      // 用 FormData 方式上传
-      const { FormData, Blob } = await import('node:buffer').catch(() => ({}));
-      
-      const uploadRes = await fetch('https://api.replicate.com/v1/files', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${REPLICATE_TOKEN}`,
-          'Content-Type': mimeType,
-          'Content-Length': String(buffer.length),
-        },
-        body: buffer,
-        duplex: 'half',
-      });
-
-      const text = await uploadRes.text();
-      console.log('上传响应状态:', uploadRes.status);
-      console.log('上传响应:', text.substring(0, 200));
-
-      let uploadData;
-      try { uploadData = JSON.parse(text); } catch(e) { throw new Error('解析失败: ' + text); }
-      if (!uploadData.urls?.get) throw new Error('上传失败: ' + text);
-      return uploadData.urls.get;
-    }
-
-    const humanUrl = await uploadToReplicate(human_img);
-    console.log('人物URL:', humanUrl);
-    const garmentUrl = await uploadToReplicate(garm_img);
-    console.log('衣服URL:', garmentUrl);
-
+    // Replicate 直接支持 base64 data URL 格式，不需要先上传
     const startRes = await fetch('https://api.replicate.com/v1/models/cuuupid/idm-vton/predictions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${REPLICATE_TOKEN}`,
         'Content-Type': 'application/json',
+        'Prefer': 'respond-async'
       },
       body: JSON.stringify({
         input: {
-          human_img: humanUrl,
-          garm_img: garmentUrl,
+          human_img: human_img,
+          garm_img: garm_img,
           garment_des: 'clothing item',
           is_checked: true,
           is_checked_crop: false,
@@ -82,9 +41,12 @@ export default async function handler(req, res) {
     });
 
     const prediction = await startRes.json();
-    console.log('预测:', prediction.id, prediction.status);
-    if (prediction.error) throw new Error(prediction.error);
+    console.log('预测响应:', JSON.stringify(prediction).substring(0, 300));
 
+    if (prediction.error) throw new Error(prediction.error);
+    if (!prediction.id) throw new Error('未获取到预测ID: ' + JSON.stringify(prediction));
+
+    console.log('预测启动成功:', prediction.id, prediction.status);
     return res.status(200).json({ success: true, predictionId: prediction.id });
 
   } catch (err) {

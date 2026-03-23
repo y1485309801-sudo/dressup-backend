@@ -17,17 +17,17 @@ export default async function handler(req, res) {
     const { human_img, garm_img } = req.body;
     if (!human_img || !garm_img) return res.status(400).json({ error: '缺少图片参数' });
 
-    console.log('直接用 base64 data URL 调用模型...');
+    console.log('启动换衣预测...');
 
-    // Replicate 直接支持 base64 data URL 格式，不需要先上传
-    const startRes = await fetch('https://api.replicate.com/v1/models/cuuupid/idm-vton/predictions', {
+    // 用版本ID调用，不用模型名
+    const startRes = await fetch('https://api.replicate.com/v1/predictions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${REPLICATE_TOKEN}`,
         'Content-Type': 'application/json',
-        'Prefer': 'respond-async'
       },
       body: JSON.stringify({
+        version: '0aee68c6e6753e4722d362678c927ff91e2e5a7fe7312dc87fb5b2ccc35b277d',
         input: {
           human_img: human_img,
           garm_img: garm_img,
@@ -46,7 +46,7 @@ export default async function handler(req, res) {
     if (prediction.error) throw new Error(prediction.error);
     if (!prediction.id) throw new Error('未获取到预测ID: ' + JSON.stringify(prediction));
 
-    console.log('预测启动成功:', prediction.id, prediction.status);
+    console.log('预测启动成功:', prediction.id);
     return res.status(200).json({ success: true, predictionId: prediction.id });
 
   } catch (err) {

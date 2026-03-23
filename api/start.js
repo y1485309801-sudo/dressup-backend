@@ -9,6 +9,37 @@ export default async function handler(req, res) {
     const { human_img, garm_img } = req.body;
     if (!human_img || !garm_img) return res.status(400).json({ error: '缺少图片参数' });
 
+    async function uploadToReplicate(base64Str) {
+      if (base64Str.startsWith('http')) return base64Str;
+      const matches = base64Str.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+      let buffer, mimeType;
+      if (matches) {
+        mimeType = matches[1];
+        buffer = Buffer.from(matches[2], 'base64');
+      } else {
+        buffer = Buffer.from(base64Str, 'base64');
+        mimeType = 'image/png';
+      }
+      const uploadRes = await fetch('https://api.replicate.com/v1/files', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${REPLICATE_TOKEN}`,
+          'Content-Type': mimeType,
+          'Content-Length': String(buffer.length),
+        },
+        body: buffer
+      });
+      const uploadData = await uploadRes.json();
+      if (!uploadData.urls?.get) throw new Error('图片上传失败: ' + JSON.stringify(uploadData));
+      return uploadData.urls.get;
+    }
+
+    console.log('上传人物图片...');
+    const humanUrl = await uploadToReplicate(human_img);
+    console.log('上传衣服图片...');
+    const garmentUrl = await uploadToReplicate(garm_img);
+    console.log('启动换衣模型...');
+
     const startRes = await fetch('https://api.replicate.com/v1/models/cuuupid/idm-vton/predictions', {
       method: 'POST',
       headers: {
@@ -17,8 +48,8 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         input: {
-          human_img,
-          garm_img,
+          human_img: humanUrl,
+          garm_img: garmentUrl,
           garment_des: 'clothing item',
           is_checked: true,
           is_checked_crop: false,
@@ -29,12 +60,13 @@ export default async function handler(req, res) {
     });
 
     const prediction = await startRes.json();
+    console.log('预测启动:', prediction.id, prediction.status);
     if (prediction.error) throw new Error(prediction.error);
 
     return res.status(200).json({ success: true, predictionId: prediction.id });
 
   } catch (err) {
-    console.error('启动失败:', err);
+    console.error('启动失败:', err.message);
     return res.status(500).json({ error: err.message || '启动失败' });
   }
 }

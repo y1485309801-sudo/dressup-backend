@@ -6,6 +6,46 @@ export const config = {
   },
 };
 
+import crypto from 'crypto';
+
+function volcSign(ak, sk, service, region, host, action, version, body) {
+  const now = new Date();
+  // 格式: 20210618T092822Z
+  const xDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const shortDate = xDate.slice(0, 8);
+
+  const bodyHash = crypto.createHash('sha256').update(body).digest('hex');
+
+  // 规范请求
+  const canonicalRequest = [
+    'POST',
+    '/',
+    `Action=${action}&Version=${version}`,
+    `content-type:application/json\nhost:${host}\nx-content-sha256:${bodyHash}\nx-date:${xDate}\n`,
+    'content-type;host;x-content-sha256;x-date',
+    bodyHash,
+  ].join('\n');
+
+  console.log('canonicalRequest:', canonicalRequest);
+
+  const credentialScope = `${shortDate}/${region}/${service}/request`;
+  const hashedCanonical = crypto.createHash('sha256').update(canonicalRequest).digest('hex');
+  const stringToSign = `HMAC-SHA256\n${xDate}\n${credentialScope}\n${hashedCanonical}`;
+
+  console.log('stringToSign:', stringToSign);
+
+  // 派生签名密钥
+  const kDate    = crypto.createHmac('sha256', sk).update(shortDate).digest();
+  const kRegion  = crypto.createHmac('sha256', kDate).update(region).digest();
+  const kService = crypto.createHmac('sha256', kRegion).update(service).digest();
+  const kSign    = crypto.createHmac('sha256', kService).update('request').digest();
+  const signature = crypto.createHmac('sha256', kSign).update(stringToSign).digest('hex');
+
+  const authorization = `HMAC-SHA256 Credential=${ak}/${credentialScope}, SignedHeaders=content-type;host;x-content-sha256;x-date, Signature=${signature}`;
+
+  return { xDate, bodyHash, authorization };
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -18,7 +58,11 @@ export default async function handler(req, res) {
     const { human_img, garm_img } = req.body;
     if (!human_img || !garm_img) return res.status(400).json({ error: '缺少图片参数' });
 
-    const { Signer } = await import('@volcengine/openapi');
+    const host    = 'visual.volcengineapi.com';
+    const service = 'cv';
+    const region  = 'cn-north-1';
+    const action  = 'CVProcess';
+    const version = '2022-08-31';
 
     const body = JSON.stringify({
       req_key: 'i2i_tryon_async_v2',
@@ -26,25 +70,19 @@ export default async function handler(req, res) {
       garment_image: garm_img,
     });
 
-    // 按官方SDK示例构建请求对象
-    const requestObj = {
-      region: 'cn-north-1',
+    const { xDate, bodyHash, authorization } = volcSign(AK, SK, service, region, host, action, version, body);
+
+    console.log('Authorization:', authorization);
+
+    const response = await fetch(`https://${host}/?Action=${action}&Version=${version}`, {
       method: 'POST',
-      params: { Action: 'CVProcess', Version: '2022-08-31' },
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    };
-
-    const signer = new Signer(requestObj, 'cv');
-    signer.addAuthorization({ accessKeyId: AK, secretKey: SK, sessionToken: '' });
-
-    // 签名后 requestObj.headers 已包含 Authorization 和 X-Date 等
-    console.log('签名后headers:', JSON.stringify(requestObj.headers));
-    console.log('调用火山引擎换装V2...');
-
-    const response = await fetch('https://visual.volcengineapi.com/?Action=CVProcess&Version=2022-08-31', {
-      method: 'POST',
-      headers: requestObj.headers,  // 用签名后的headers！
+      headers: {
+        'Content-Type': 'application/json',
+        'Host': host,
+        'X-Date': xDate,
+        'X-Content-Sha256': bodyHash,
+        'Authorization': authorization,
+      },
       body,
     });
 
@@ -54,7 +92,6 @@ export default async function handler(req, res) {
     if (data.code && data.code !== 10000) throw new Error(data.message || '调用失败');
     if (!data.data?.task_id) throw new Error('未获取到任务ID: ' + JSON.stringify(data));
 
-    console.log('任务ID:', data.data.task_id);
     return res.status(200).json({ success: true, predictionId: data.data.task_id });
 
   } catch (err) {
